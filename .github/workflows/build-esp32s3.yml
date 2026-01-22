@@ -1,0 +1,52 @@
+name: Build ESP32-S3 Firmware
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get firmware version
+        id: get_version
+        run: |
+          VERSION_MAJOR=$(grep "VERSION_MAJOR=" build_esp32s3.sh | cut -d'"' -f2)
+          VERSION_MINOR=$(grep "VERSION_MINOR=" build_esp32s3.sh | cut -d'"' -f2)
+          echo "version=${VERSION_MAJOR}.${VERSION_MINOR}" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+      - name: Set up ESP-IDF, Build Firmware and Prepare release artifact
+        run: |
+          git clone https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          git checkout tags/v5.5
+          git submodule update --init --recursive
+          ./install.sh esp32s3
+          cd ..
+          source esp-idf/export.sh
+          idf.py set-target esp32s3
+          idf.py build
+          mkdir -p release
+          cd build
+          esptool.py --chip ESP32-S3 merge_bin -o ../release/pico_fido_${{ steps.get_version.outputs.version }}_esp32-s3.bin @flash_args
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pico-fido-esp32s3-firmware
+          path: release/pico_fido_${{ steps.get_version.outputs.version }}_esp32-s3.bin
